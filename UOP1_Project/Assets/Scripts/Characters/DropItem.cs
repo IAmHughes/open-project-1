@@ -4,12 +4,9 @@ using UnityEngine;
 [Serializable]
 public class DropItem
 {
-	[SerializeField]
-	Item _item;
+	[SerializeField] ItemSO _item;
+	[SerializeField] float _itemDropRate;
 
-	[SerializeField]
-	float _itemDropRate;
-
-	public Item Item => _item;
+	public ItemSO Item => _item;
 	public float ItemDropRate => _itemDropRate;
 }

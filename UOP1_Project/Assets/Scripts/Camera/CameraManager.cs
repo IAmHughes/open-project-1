@@ -8,46 +8,48 @@ public class CameraManager : MonoBehaviour
 	public InputReader inputReader;
 	public Camera mainCamera;
 	public CinemachineFreeLook freeLookVCam;
+	public CinemachineImpulseSource impulseSource;
 	private bool _isRMBPressed;
 
-	[SerializeField, Range(.5f, 3f)]
-	private float _speedMultiplier = 1f; //TODO: make this modifiable in the game settings											
+	[SerializeField][Range(.5f, 3f)] private float _speedMultiplier = 1f; //TODO: make this modifiable in the game settings											
 	[SerializeField] private TransformAnchor _cameraTransformAnchor = default;
+	[SerializeField] private TransformAnchor _protagonistTransformAnchor = default;
 
 	[Header("Listening on channels")]
-	[Tooltip("The CameraManager listens to this event, fired by objects in any scene, to adapt camera position")]
-	[SerializeField] private TransformEventChannelSO _frameObjectChannel = default;
-
+	[Tooltip("The CameraManager listens to this event, fired by protagonist GettingHit state, to shake camera")]
+	[SerializeField] private VoidEventChannelSO _camShakeEvent = default;
 
 	private bool _cameraMovementLock = false;
 
-	public void SetupProtagonistVirtualCamera(Transform target)
-	{
-		freeLookVCam.Follow = target;
-		freeLookVCam.LookAt = target;
-		freeLookVCam.OnTargetObjectWarped(target, target.position - freeLookVCam.transform.position - Vector3.forward);
-	}
-
 	private void OnEnable()
 	{
-		inputReader.cameraMoveEvent += OnCameraMove;
-		inputReader.enableMouseControlCameraEvent += OnEnableMouseControlCamera;
-		inputReader.disableMouseControlCameraEvent += OnDisableMouseControlCamera;
+		inputReader.CameraMoveEvent += OnCameraMove;
+		inputReader.EnableMouseControlCameraEvent += OnEnableMouseControlCamera;
+		inputReader.DisableMouseControlCameraEvent += OnDisableMouseControlCamera;
 
-		if (_frameObjectChannel != null)
-			_frameObjectChannel.OnEventRaised += OnFrameObjectEvent;
+		_protagonistTransformAnchor.OnAnchorProvided += SetupProtagonistVirtualCamera;
+		_camShakeEvent.OnEventRaised += impulseSource.GenerateImpulse;
 
-		_cameraTransformAnchor.Transform = mainCamera.transform;
+		_cameraTransformAnchor.Provide(mainCamera.transform);
 	}
 
 	private void OnDisable()
 	{
-		inputReader.cameraMoveEvent -= OnCameraMove;
-		inputReader.enableMouseControlCameraEvent -= OnEnableMouseControlCamera;
-		inputReader.disableMouseControlCameraEvent -= OnDisableMouseControlCamera;
+		inputReader.CameraMoveEvent -= OnCameraMove;
+		inputReader.EnableMouseControlCameraEvent -= OnEnableMouseControlCamera;
+		inputReader.DisableMouseControlCameraEvent -= OnDisableMouseControlCamera;
 
-		if (_frameObjectChannel != null)
-			_frameObjectChannel.OnEventRaised -= OnFrameObjectEvent;
+		_protagonistTransformAnchor.OnAnchorProvided -= SetupProtagonistVirtualCamera;
+		_camShakeEvent.OnEventRaised -= impulseSource.GenerateImpulse;
+
+		_cameraTransformAnchor.Unset();
+	}
+
+	private void Start()
+	{
+		//Setup the camera target if the protagonist is already available
+		if(_protagonistTransformAnchor.isSet)
+			SetupProtagonistVirtualCamera();
 	}
 
 	private void OnEnableMouseControlCamera()
@@ -88,12 +90,24 @@ public class CameraManager : MonoBehaviour
 		if (isDeviceMouse && !_isRMBPressed)
 			return;
 
-		freeLookVCam.m_XAxis.m_InputAxisValue = cameraMovement.x * Time.deltaTime * _speedMultiplier;
-		freeLookVCam.m_YAxis.m_InputAxisValue = cameraMovement.y * Time.deltaTime * _speedMultiplier;
+		//Using a "fixed delta time" if the device is mouse,
+		//since for the mouse we don't have to account for frame duration
+		float deviceMultiplier = isDeviceMouse ? 0.02f : Time.deltaTime;
+
+		freeLookVCam.m_XAxis.m_InputAxisValue = cameraMovement.x * deviceMultiplier * _speedMultiplier;
+		freeLookVCam.m_YAxis.m_InputAxisValue = cameraMovement.y * deviceMultiplier * _speedMultiplier;
 	}
 
-	private void OnFrameObjectEvent(Transform value)
+	/// <summary>
+	/// Provides Cinemachine with its target, taken from the TransformAnchor SO containing a reference to the player's Transform component.
+	/// This method is called every time the player is reinstantiated.
+	/// </summary>
+	public void SetupProtagonistVirtualCamera()
 	{
-		SetupProtagonistVirtualCamera(value);
+		Transform target = _protagonistTransformAnchor.Value;
+
+		freeLookVCam.Follow = target;
+		freeLookVCam.LookAt = target;
+		freeLookVCam.OnTargetObjectWarped(target, target.position - freeLookVCam.transform.position - Vector3.forward);
 	}
 }

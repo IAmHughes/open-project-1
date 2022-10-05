@@ -42,7 +42,7 @@ public static class LocalizationUtils
 		// If we are in the editor in edit mode, we need to find a valid locale and get the localized string from it:
 #if UNITY_EDITOR
 		if (EditorApplication.isPlaying)
-			return String.Empty;
+			return string.Empty;
 
 		string text = null;
 		if (!localizedStringReference.IsEmpty)
@@ -53,13 +53,14 @@ public static class LocalizationUtils
 			{
 				StringTable table = (StringTable)tableCollection.GetTable(locale.Identifier);
 				if (table != null)
+					if (table.GetEntryFromReference(localizedStringReference.TableEntryReference)!=null)
 					text = table.GetEntryFromReference(localizedStringReference.TableEntryReference).LocalizedValue;
 			}
 		}
 		return text;
-#endif
-
+#else
 		// At runtime (build or editor in play mode), we just get the localized string normally:
-		return localizedStringReference.GetLocalizedString().Result;
+		return localizedStringReference.GetLocalizedString();
+#endif
 	}
 }

@@ -1,10 +1,6 @@
-﻿using System;
-using System.Collections.Generic;
-using TMPro;
+﻿using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Localization;
-using UnityEngine.Serialization;
-using UnityEngine.UI;
 
 /// <summary>
 /// Takes care of all things dialogue, whether they are coming from within a Timeline or just from the interaction with a character, or by any other mean.
@@ -12,53 +8,57 @@ using UnityEngine.UI;
 /// </summary>
 public class DialogueManager : MonoBehaviour
 {
-	//	[SerializeField] private ChoiceBox _choiceBox; // TODO: Demonstration purpose only. Remove or adjust later.
-
+	[SerializeField] private List<ActorSO> _actorsList = default;
 	[SerializeField] private InputReader _inputReader = default;
-	private int _counter;
-	private bool _reachedEndOfDialogue { get => _counter >= _currentDialogue.DialogueLines.Count; }
+	[SerializeField] private GameStateSO _gameState = default;
 
-	[Header("Listening on channels")]
+	[Header("Listening on")]
 	[SerializeField] private DialogueDataChannelSO _startDialogue = default;
 	[SerializeField] private DialogueChoiceChannelSO _makeDialogueChoiceEvent = default;
 
-	[Header("BoradCasting on channels")]
+	[Header("Broadcasting on")]
 	[SerializeField] private DialogueLineChannelSO _openUIDialogueEvent = default;
 	[SerializeField] private DialogueChoicesChannelSO _showChoicesUIEvent = default;
-	[SerializeField] private DialogueDataChannelSO _endDialogue = default;
+	[SerializeField] private IntEventChannelSO _endDialogueWithTypeEvent = default;
 	[SerializeField] private VoidEventChannelSO _continueWithStep = default;
-	[SerializeField] private VoidEventChannelSO _closeDialogueUIEvent = default;
+	[SerializeField] private VoidEventChannelSO _playIncompleteDialogue = default;
+	[SerializeField] private VoidEventChannelSO _makeWinningChoice = default;
+	[SerializeField] private VoidEventChannelSO _makeLosingChoice = default;
 
-
+	private int _counterDialogue;
+	private int _counterLine;
+	private bool _reachedEndOfDialogue { get => _counterDialogue >= _currentDialogue.Lines.Count; }
+	private bool _reachedEndOfLine { get => _counterLine >= _currentDialogue.Lines[_counterDialogue].TextList.Count; }
 	private DialogueDataSO _currentDialogue = default;
 
 	private void Start()
 	{
-		
-			_startDialogue.OnEventRaised += DisplayDialogueData;
-		
-
+		_startDialogue.OnEventRaised += DisplayDialogueData;
 	}
 
 	/// <summary>
 	/// Displays DialogueData in the UI, one by one.
 	/// </summary>
-	/// <param name="dialogueDataSO"></param>
 	public void DisplayDialogueData(DialogueDataSO dialogueDataSO)
 	{
-		BeginDialogueData(dialogueDataSO);
-		DisplayDialogueLine(_currentDialogue.DialogueLines[_counter], dialogueDataSO.Actor);
-	}
+		if (_gameState.CurrentGameState != GameState.Cutscene) // the dialogue state is implied in the cutscene state
+			_gameState.UpdateGameState(GameState.Dialogue);
 
-	/// <summary>
-	/// Prepare DialogueManager when first time displaying DialogueData. 
-	/// <param name="dialogueDataSO"></param>
-	private void BeginDialogueData(DialogueDataSO dialogueDataSO)
-	{
-		_counter = 0;
+		_counterDialogue = 0;
+		_counterLine = 0;
 		_inputReader.EnableDialogueInput();
-		_inputReader.advanceDialogueEvent += OnAdvance;
+		_inputReader.AdvanceDialogueEvent += OnAdvance;
 		_currentDialogue = dialogueDataSO;
+
+		if (_currentDialogue.Lines != null)
+		{
+			ActorSO currentActor = _actorsList.Find(o => o.ActorId == _currentDialogue.Lines[_counterDialogue].Actor); // we don't add a controle, because we need a null reference exeption if the actor is not in the list
+			DisplayDialogueLine(_currentDialogue.Lines[_counterDialogue].TextList[_counterLine], currentActor);
+		}
+		else
+		{
+			Debug.LogError("Check Dialogue");
+		}
 	}
 
 	/// <summary>
@@ -68,24 +68,34 @@ public class DialogueManager : MonoBehaviour
 	/// <param name="dialogueLine"></param>
 	public void DisplayDialogueLine(LocalizedString dialogueLine, ActorSO actor)
 	{
-		
-			_openUIDialogueEvent.RaiseEvent(dialogueLine, actor);
-		
+		_openUIDialogueEvent.RaiseEvent(dialogueLine, actor);
 	}
 
 	private void OnAdvance()
 	{
-		_counter++;
-
-		if (!_reachedEndOfDialogue)
+		_counterLine++;
+		if (!_reachedEndOfLine)
 		{
-			DisplayDialogueLine(_currentDialogue.DialogueLines[_counter], _currentDialogue.Actor);
+			ActorSO currentActor = _actorsList.Find(o => o.ActorId == _currentDialogue.Lines[_counterDialogue].Actor); // we don't add a controle, because we need a null reference exeption if the actor is not in the list
+			DisplayDialogueLine(_currentDialogue.Lines[_counterDialogue].TextList[_counterLine], currentActor);
+		}
+		else if (_currentDialogue.Lines[_counterDialogue].Choices != null
+				&& _currentDialogue.Lines[_counterDialogue].Choices.Count > 0)
+		{
+			if (_currentDialogue.Lines[_counterDialogue].Choices.Count > 0)
+			{
+				DisplayChoices(_currentDialogue.Lines[_counterDialogue].Choices);
+			}
 		}
 		else
 		{
-			if (_currentDialogue.Choices.Count > 0)
+			_counterDialogue++;
+			if (!_reachedEndOfDialogue)
 			{
-				DisplayChoices(_currentDialogue.Choices);
+				_counterLine = 0;
+
+				ActorSO currentActor = _actorsList.Find(o => o.ActorId == _currentDialogue.Lines[_counterDialogue].Actor); // we don't add a controle, because we need a null reference exeption if the actor is not in the list
+				DisplayDialogueLine(_currentDialogue.Lines[_counterDialogue].TextList[_counterLine], currentActor);
 			}
 			else
 			{
@@ -96,53 +106,72 @@ public class DialogueManager : MonoBehaviour
 
 	private void DisplayChoices(List<Choice> choices)
 	{
-		_inputReader.advanceDialogueEvent -= OnAdvance;
-		
-			_makeDialogueChoiceEvent.OnEventRaised += MakeDialogueChoice;
-		
+		_inputReader.AdvanceDialogueEvent -= OnAdvance;
 
-		
-			_showChoicesUIEvent.RaiseEvent(choices);
-		
+		_makeDialogueChoiceEvent.OnEventRaised += MakeDialogueChoice;
+		_showChoicesUIEvent.RaiseEvent(choices);
 	}
 
 	private void MakeDialogueChoice(Choice choice)
 	{
+		_makeDialogueChoiceEvent.OnEventRaised -= MakeDialogueChoice;
 
-		
-			_makeDialogueChoiceEvent.OnEventRaised -= MakeDialogueChoice;
-		
-		if (choice.ActionType == ChoiceActionType.continueWithStep)
+		switch (choice.ActionType)
 		{
-			if (_continueWithStep != null)
-				_continueWithStep.RaiseEvent();
-			if (choice.NextDialogue != null)
-				DisplayDialogueData(choice.NextDialogue);
-		}
-		else
-		{
-			if (choice.NextDialogue != null)
-				DisplayDialogueData(choice.NextDialogue);
-			else
-				DialogueEndedAndCloseDialogueUI();
+			case ChoiceActionType.ContinueWithStep:
+				if (_continueWithStep != null)
+					_continueWithStep.RaiseEvent();
+				if (choice.NextDialogue != null)
+					DisplayDialogueData(choice.NextDialogue);
+				break;
+
+			case ChoiceActionType.WinningChoice:
+				if (_makeWinningChoice != null)
+					_makeWinningChoice.RaiseEvent();
+				break;
+
+			case ChoiceActionType.LosingChoice:
+				if (_makeLosingChoice != null)
+					_makeLosingChoice.RaiseEvent();
+				break;
+
+			case ChoiceActionType.DoNothing:
+				if (choice.NextDialogue != null)
+					DisplayDialogueData(choice.NextDialogue);
+				else
+					DialogueEndedAndCloseDialogueUI();
+				break;
+
+			case ChoiceActionType.IncompleteStep:
+				if (_playIncompleteDialogue != null)
+					_playIncompleteDialogue.RaiseEvent();
+				if (choice.NextDialogue != null)
+					DisplayDialogueData(choice.NextDialogue);
+				break;
 		}
 	}
 
-	void DialogueEnded()
+	public void CutsceneDialogueEnded()
 	{
-		if (_endDialogue != null)
-			_endDialogue.RaiseEvent(_currentDialogue);
+		if (_endDialogueWithTypeEvent != null)
+			_endDialogueWithTypeEvent.RaiseEvent((int)DialogueType.DefaultDialogue);
 	}
-	public void DialogueEndedAndCloseDialogueUI()
+
+	private void DialogueEndedAndCloseDialogueUI()
 	{
-		if (_endDialogue != null)
-			_endDialogue.RaiseEvent(_currentDialogue);
-		if (_closeDialogueUIEvent != null)
-			_closeDialogueUIEvent.RaiseEvent();
-		_inputReader.advanceDialogueEvent -= OnAdvance;
-		_inputReader.EnableGameplayInput();
+		//raise the special event for end of dialogue if any 
+		_currentDialogue.FinishDialogue();
 
+		//raise end dialogue event 
+		if (_endDialogueWithTypeEvent != null)
+			_endDialogueWithTypeEvent.RaiseEvent((int)_currentDialogue.DialogueType);
 
+		_inputReader.AdvanceDialogueEvent -= OnAdvance;
+		_gameState.ResetToPreviousGameState();
+		
+		if (_gameState.CurrentGameState == GameState.Gameplay
+			|| _gameState.CurrentGameState == GameState.Combat)
+			_inputReader.EnableGameplayInput();
 	}
 }
 

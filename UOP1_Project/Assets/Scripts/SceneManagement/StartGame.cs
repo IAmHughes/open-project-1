@@ -1,73 +1,73 @@
-﻿using System;
-using System.Collections;
+﻿using System.Collections;
 using UnityEngine;
 using UnityEngine.AddressableAssets;
 using UnityEngine.ResourceManagement.AsyncOperations;
-using UnityEngine.UI;
+
 
 /// <summary>
 /// This class contains the function to call when play button is pressed
 /// </summary>
 public class StartGame : MonoBehaviour
 {
-	public LoadEventChannelSO onPlayButtonPress;
-	public GameSceneSO locationsToLoad;
-	public bool showLoadScreen;
+	[SerializeField] private GameSceneSO _locationsToLoad;
+	[SerializeField] private SaveSystem _saveSystem = default;
+	[SerializeField] private bool _showLoadScreen = default;
+	
+	[Header("Broadcasting on")]
+	[SerializeField] private LoadEventChannelSO _loadLocation = default;
 
-	public SaveSystem saveSystem;
-	public Text startText;
+	[Header("Listening to")]
+	[SerializeField] private VoidEventChannelSO _onNewGameButton = default;
+	[SerializeField] private VoidEventChannelSO _onContinueButton = default;
 
-	public Button resetSaveDataButton;
 	private bool _hasSaveData;
 
 	private void Start()
 	{
-		_hasSaveData = saveSystem.LoadSaveDataFromDisk();
-
-		if (_hasSaveData)
-		{
-			startText.text = "Continue";
-			resetSaveDataButton.gameObject.SetActive(true);
-		}
-		else
-		{
-			resetSaveDataButton.gameObject.SetActive(false);
-		}
+		_hasSaveData = _saveSystem.LoadSaveDataFromDisk();
+		_onNewGameButton.OnEventRaised += StartNewGame;
+		_onContinueButton.OnEventRaised += ContinuePreviousGame;
 	}
 
-	public void OnPlayButtonPress()
+	private void OnDestroy()
 	{
-		if (!_hasSaveData)
-		{
-			saveSystem.WriteEmptySaveFile();
-			//Start new game
-			onPlayButtonPress.RaiseEvent(locationsToLoad, showLoadScreen);
-		}
-		else
-		{
-			//Load Game
-			StartCoroutine(LoadSaveGame());
-		}
+		_onNewGameButton.OnEventRaised -= StartNewGame;
+		_onContinueButton.OnEventRaised -= ContinuePreviousGame;
 	}
 
-	public void OnResetSaveDataPress()
+	private void StartNewGame()
 	{
 		_hasSaveData = false;
-		startText.text = "Play";
-		resetSaveDataButton.gameObject.SetActive(false);
+		
+		_saveSystem. WriteEmptySaveFile();
+		_saveSystem.SetNewGameData();
+		_loadLocation.RaiseEvent(_locationsToLoad, _showLoadScreen);
 	}
 
-	public IEnumerator LoadSaveGame()
+	private void ContinuePreviousGame()
 	{
-		yield return StartCoroutine(saveSystem.LoadSavedInventory());
+		StartCoroutine(LoadSaveGame());
+	}
 
-		var locationGuid = saveSystem.saveData._locationId;
+	private void OnResetSaveDataPress()
+	{
+		_hasSaveData = false;
+	}
+
+	private IEnumerator LoadSaveGame()
+	{
+		yield return StartCoroutine(_saveSystem.LoadSavedInventory());
+
+		_saveSystem.LoadSavedQuestlineStatus(); 
+		var locationGuid = _saveSystem.saveData._locationId;
 		var asyncOperationHandle = Addressables.LoadAssetAsync<LocationSO>(locationGuid);
+
 		yield return asyncOperationHandle;
+
 		if (asyncOperationHandle.Status == AsyncOperationStatus.Succeeded)
 		{
 			LocationSO locationSO = asyncOperationHandle.Result;
-			onPlayButtonPress.RaiseEvent(locationSO, showLoadScreen);
+			_loadLocation.RaiseEvent(locationSO, _showLoadScreen);
 		}
 	}
 }

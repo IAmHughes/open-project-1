@@ -23,7 +23,10 @@ public static class FileManager
 	public static bool LoadFromFile(string fileName, out string result)
 	{
 		var fullPath = Path.Combine(Application.persistentDataPath, fileName);
-
+		if(!File.Exists(fullPath))
+		{
+			File.WriteAllText(fullPath, ""); 
+		}
 		try
 		{
 			result = File.ReadAllText(fullPath);
@@ -48,11 +51,17 @@ public static class FileManager
 			{
 				File.Delete(newFullPath);
 			}
+
+			if (!File.Exists(fullPath))
+			{
+				return false;
+			}
+			
 			File.Move(fullPath, newFullPath);
 		}
 		catch (Exception e)
 		{
-			//Debug.LogError($"Failed to move file from {fullPath} to {newFullPath} with exception {e}");
+			Debug.LogError($"Failed to move file from {fullPath} to {newFullPath} with exception {e}");
 			return false;
 		}
 
